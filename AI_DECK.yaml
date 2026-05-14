@@ -1,0 +1,61 @@
+%YAML:1.0
+
+#--------------------------------------------------------------------------------------------
+# Camera Parameters
+#--------------------------------------------------------------------------------------------
+File.version: "1.0"
+Camera.type: "PinHole"
+
+# Intrinsics (UPDATED)
+Camera1.fx: 175.9555
+Camera1.fy: 173.6857
+Camera1.cx: 173.6039
+Camera1.cy: 160.2146
+
+# Distortion (UPDATED)
+Camera1.k1: -0.08281814
+Camera1.k2: -0.04612655
+Camera1.p1: -0.00536818
+Camera1.p2: -0.00126261
+Camera1.k3: 0.02633058
+
+# Camera FPS
+Camera.fps: 20
+
+# Grayscale camera (important for CF)
+Camera.RGB: 0
+
+# Resolution
+Camera.width: 320
+Camera.height: 320
+
+#--------------------------------------------------------------------------------------------
+# ORB Parameters
+#--------------------------------------------------------------------------------------------
+ORBextractor.nFeatures: 1000
+ORBextractor.scaleFactor: 1.2
+ORBextractor.nLevels: 8
+
+# IMPORTANT: lower thresholds for low-quality CF images
+ORBextractor.iniThFAST: 15
+ORBextractor.minThFAST: 5
+
+#--------------------------------------------------------------------------------------------
+# Viewer Parameters
+#--------------------------------------------------------------------------------------------
+Viewer.KeyFrameSize: 0.05
+Viewer.KeyFrameLineWidth: 1.0
+Viewer.GraphLineWidth: 0.9
+Viewer.PointSize: 2.0
+Viewer.CameraSize: 0.08
+Viewer.CameraLineWidth: 3.0
+Viewer.ViewpointX: 0.0
+Viewer.ViewpointY: -0.7
+Viewer.ViewpointZ: -1.8
+Viewer.ViewpointF: 500.0
+
+#Atlas.Save: Crazyflie_ai_deck_map_1
+#System.SaveAtlasToFile: Crazyflie_ai_deck_map_1
+Atlas.Load: Crazyflie_ai_deck_map_1
+System.LoadAtlasFromFile: Crazyflie_ai_deck_map_1
+LoadAtlasFromFile: Crazyflie_ai_deck_map_1
