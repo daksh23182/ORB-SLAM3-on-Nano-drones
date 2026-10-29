@@ -1,8 +1,13 @@
-# ORB-SLAM3(Monocular) + Crazyflie AI Deck ROS2 Setup (Ubuntu 24.04)
+# ORB-SLAM3 (Mono-Inertial) + Crazyflie AI Deck ROS2 Setup (Ubuntu 24.04)
 
 ## Overview
 
-This repository contains the ROS2 workspace and custom UDP camera node used to stream live images from the Crazyflie AI Deck into ORB-SLAM3 using ROS2 on Ubuntu 24.04.
+This repository contains the ROS2 workspace and custom nodes used to stream live images from the Crazyflie AI Deck and live IMU data from the Crazyflie into ORB-SLAM3 using ROS2 on Ubuntu 24.04.
+
+**Mono-inertial ORB-SLAM3 is running at ~60 FPS with a 160x160 camera stream.**
+
+Demo run video:
+https://drive.google.com/file/d/1197XoA7jUXNwrQ64it4OxDi2Vhvk_fRE/view?usp=sharing
 
 The setup was tested using:
 
@@ -10,9 +15,10 @@ The setup was tested using:
 * ROS2 Jazzy
 * Crazyflie 2.1+
 * AI Deck
-* ORB-SLAM3
+* Crazyradio
+* ORB-SLAM3 (Mono-Inertial)
 * OpenCV
-* Python ROS2 node for UDP image streaming
+* cflib (Crazyflie Python library)
 
 The AI Deck camera stream is published as:
 
@@ -20,12 +26,18 @@ The AI Deck camera stream is published as:
 /camera/image_raw
 ```
 
-and ORB-SLAM3 subscribes to this topic for real-time monocular SLAM.
+The Crazyflie IMU stream is published as:
+
+```plaintext
+/cf_imu
+```
+
+and ORB-SLAM3 subscribes to both topics for real-time mono-inertial SLAM.
 
 There is no proper documentation to setup orbslam3 library on ubuntu 24.0, this is the resource i found online that worked for me(You can translate to English and follow the instructions)
 https://hackmd.io/@dennis40816/rJqjMi6tJe
 
-To learn about the AI deck and to setup streaming over wifi please follow the documentation - https://www.bitcraze.io/documentation/tutorials/getting-started-with-aideck/#preparing-the-ai-deck-and-crazyflie-firmware 
+To learn about the AI deck and to setup streaming over wifi please follow the documentation - https://www.bitcraze.io/documentation/tutorials/getting-started-with-aideck/#preparing-the-ai-deck-and-crazyflie-firmware
 
 ---
 
@@ -84,7 +96,7 @@ Clone this repository:
 
 ```bash
 cd ~/Desktop/crazyflie
-git clone <YOUR_REPOSITORY_LINK>
+git clone https://github.com/daksh23182/ORB-SLAM3-on-Nano-drones-.git ros2_ws
 ```
 
 The repository already contains:
@@ -95,20 +107,37 @@ ros2_ws/src/aideck_camera
 
 including:
 
-* udp_camera_node.py
+* camera streaming node
+* IMU streaming node (cf_imu_node)
 * ROS2 package files
 * launch structure
 * setup configuration
 
 ---
 
-# 4. Camera Calibration (IMPORTANT)
+# 4. AI Deck Streamer Setup (160x160)
 
-Before running ORB-SLAM3, calibrate your AI Deck camera.
+The camera stream runs through the NanoCockpit streamer on the AI Deck.
 
-Use ROS camera calibration tools or OpenCV calibration.
+Build and flash the streamer to the AI Deck by following the Bitcraze documentation linked above.
 
-Extract:
+Camera settings used:
+
+```plaintext
+Resolution : 160 x 160
+Format     : Grayscale
+Frame rate : ~60 FPS
+```
+
+Connect the PC to the AI Deck Wi-Fi before running the camera node.
+
+---
+
+# 5. Camera + IMU Calibration (IMPORTANT)
+
+Before running mono-inertial ORB-SLAM3, calibrate your AI Deck camera at **160x160** and your camera-IMU setup.
+
+Camera (use ROS camera calibration tools or OpenCV calibration):
 
 ```plaintext
 fx
@@ -121,65 +150,84 @@ p1
 p2
 ```
 
+IMU and camera-IMU (needed for mono-inertial mode):
+
+```plaintext
+Camera-to-IMU transform (Tbc)
+Camera-IMU time offset
+Gyroscope noise and random walk
+Accelerometer noise and random walk
+IMU frequency (~100 Hz)
+```
+
 Create:
 
 ```plaintext
 AI_DECK.yaml
 ```
 
-Place it here:
+Place it with the other ORB-SLAM3 Monocular-Inertial example files and use it in `run_mono_inertial.sh`.
 
-```plaintext
-ORB-SLAM3/Examples/Monocular/AI_DECK.yaml
-```
-
-An example YAML file has already been uploaded in this repository for reference using the calibration parameters extracted from my Crazyflie AI Deck.
+Note: the camera values must be calibrated for the 160x160 stream. Values calibrated at any other resolution will not work.
 
 ---
 
-# 5. ORB-SLAM3 YAML Notes
+# 6. ORB-SLAM3 YAML Notes
 
 The YAML file is used directly by ORB-SLAM3 for:
 
 * camera intrinsics
 * distortion correction
+* camera-IMU transform and IMU noise values
 * ORB feature extraction
 * image geometry
 * tracking initialization
 
-The UDP camera node itself does NOT use the YAML file.
+The camera and IMU nodes themselves do NOT use the YAML file.
 
 The YAML is only loaded by ORB-SLAM3.
 
 ---
-# 6.  Live Pose (XYZ) Output
+
+# 7. Live Pose Output
+
 Modified ORB-SLAM3 tracking to extract pose:
 
 From SLAM system (internally):
 
+```cpp
 Sophus::SE3f Tcw = mpTracker->GetPose();
+```
+
 Converted to world coordinates:
 
-Twc = Tcw.inverse();
-Extracted translation:
+```cpp
+Sophus::SE3f Twc = Tcw.inverse();
+```
 
-cv::Mat t = Twc.translation();
-This gives:
+This gives the position (X, Y, Z) and orientation (quaternion) of the camera in the world frame.
 
-X, Y, Z position of camera in world frame
+The pose is printed live in the terminal with a timestamp:
+
+```plaintext
+[POSE] t=<time> X=<m> Y=<m> Z=<m> Qx=<> Qy=<> Qz=<> Qw=<>
+```
+
 You can:
 
-Print to terminal
+* Print to terminal
+* Publish as ROS topic
+* Use for drone control
 
-Publish as ROS topic
+To make ORB-SLAM3 work with this setup, ROS topic remapping is used:
 
-Use for drone control
+```plaintext
+--ros-args -r /camera:=/camera/image_raw
+```
 
-To make ORB-SLAM3 work with this setup and extract live pose: ROS Topic Remapping
-Used:
---ros-args -r /camera:=/camera/image_ra
 ---
-# 7. ROS2 Workspace Build
+
+# 8. ROS2 Workspace Build
 
 Go to workspace:
 
@@ -201,7 +249,7 @@ source install/setup.bash
 
 ---
 
-# 8. Run the AI Deck UDP Camera Node
+# 9. Run the AI Deck Camera Node
 
 Open Terminal 1:
 
@@ -209,17 +257,14 @@ Open Terminal 1:
 cd ~/Desktop/crazyflie/ros2_ws
 source install/setup.bash
 
-ros2 run aideck_camera udp_camera_node
+ros2 run aideck_camera nanocockpit_camera_node
 ```
 
 This starts:
 
-* UDP packet reception
+* image reception from the AI Deck over Wi-Fi
 * image reconstruction
-* OpenCV visualization
 * ROS2 image publishing
-
-The live stream should appear in an OpenCV window.
 
 Published topic:
 
@@ -229,7 +274,7 @@ Published topic:
 
 ---
 
-# 9. Verify Camera Topic
+# 10. Verify Camera Topic
 
 In another terminal:
 
@@ -240,7 +285,7 @@ ros2 topic hz /camera/image_raw
 You should see approximately:
 
 ```plaintext
-~7 Hz
+~40-60 Hz
 ```
 
 Verify images:
@@ -251,9 +296,47 @@ ros2 topic echo /camera/image_raw --once
 
 ---
 
-# 10. Start ORB-SLAM3
+# 11. Run the Crazyflie IMU Node
 
 Open Terminal 2:
+
+```bash
+cd ~/Desktop/crazyflie/ros2_ws
+source install/setup.bash
+
+ros2 run aideck_camera cf_imu_node
+```
+
+This starts:
+
+* connection to the Crazyflie over the Crazyradio
+* Crazyradio transmit power set to -18 dBm
+* IMU log block streaming at ~100 Hz
+* ROS2 IMU publishing
+
+Published topic:
+
+```plaintext
+/cf_imu
+```
+
+Verify:
+
+```bash
+ros2 topic hz /cf_imu
+```
+
+You should see approximately:
+
+```plaintext
+~100 Hz
+```
+
+---
+
+# 12. Start ORB-SLAM3 (Mono-Inertial)
+
+Open Terminal 3:
 
 ```bash
 cd ~/Desktop/crazyflie/orb-slam3-root
@@ -264,31 +347,30 @@ source ~/Desktop/crazyflie/ros2_ws/install/setup.bash
 Run ORB-SLAM3:
 
 ```bash
-ros2 run orbslam3 mono \
-$ORB_SLAM3_ROOT_PATH/ORB-SLAM3/Vocabulary/ORBvoc.txt \
-$ORB_SLAM3_ROOT_PATH/ORB-SLAM3/Examples/Monocular/AI_DECK.yaml \
---ros-args -r /camera:=/camera/image_raw
+./run_mono_inertial.sh
 ```
 
 This launches:
 
 * ORB-SLAM3 viewer
 * real-time feature extraction
-* monocular SLAM pipeline
+* mono-inertial SLAM pipeline
 * map creation
 * camera tracking
 
 ---
 
-# 11. Important Motion During Initialization
+# 13. Important Motion During Initialization
 
-During startup, ORB-SLAM3 initializes using visual motion.
+During startup, ORB-SLAM3 initializes using visual motion and IMU data.
 
 Move the camera slowly:
 
 * left-right
 * forward-backward
 * slight rotations
+
+The IMU needs some motion to estimate scale and gravity direction.
 
 Avoid:
 
@@ -305,7 +387,29 @@ After initialization:
 
 ---
 
-# 12. QoS Issue Fix (IMPORTANT)
+# 14. What Worked to Increase FPS
+
+The camera stream went from ~7 FPS to ~60 FPS using the following changes:
+
+## NanoCockpit streamer on the AI Deck
+
+Streams frames from the GAP8 over Wi-Fi much more efficiently than the basic image-streaming example. This was the biggest improvement.
+
+## 160x160 resolution
+
+Each frame has a quarter of the pixels of a 320x320 frame, so many more frames fit through the Wi-Fi link. Resolution is still enough for ORB features indoors.
+
+## Grayscale frames
+
+ORB-SLAM3 only needs intensity, so no colour data is sent or converted.
+
+## Lower Crazyradio transmit power (-18 dBm)
+
+The Crazyradio (IMU link) and the AI Deck Wi-Fi share the 2.4 GHz band. Lowering the radio power stops it from interfering with the video link, so fewer frames are dropped.
+
+---
+
+# 15. QoS Issue Fix (IMPORTANT)
 
 A major issue encountered during setup was:
 
@@ -315,7 +419,7 @@ incompatible QoS policy
 
 ORB-SLAM3 uses RELIABLE QoS for image subscription.
 
-The UDP camera node publisher was modified to use:
+The camera node publisher was configured to use:
 
 ```python
 ReliabilityPolicy.RELIABLE
@@ -331,57 +435,7 @@ inside ORB-SLAM3.
 
 ---
 
-# 13. Changes Made to udp_camera_node.py
-
-The following modifications were implemented:
-
-## Thread-based packet receiving
-
-Instead of ROS timers, a dedicated receive thread was used for stable UDP handling.
-
-## Blocking socket mode
-
-Used:
-
-```python
-self.sock.setblocking(True)
-```
-
-for stable packet reception.
-
-## Continuous stream trigger
-
-Periodic trigger packets are sent to maintain the AI Deck stream.
-
-## OpenCV debug visualization
-
-Live frames displayed using:
-
-```python
-cv2.imshow()
-```
-
-## ROS2 image publishing
-
-Frames are converted using CvBridge and published to:
-
-```plaintext
-/camera/image_raw
-```
-
-## QoS compatibility fix
-
-Publisher configured with:
-
-```python
-ReliabilityPolicy.RELIABLE
-```
-
-for ORB-SLAM3 compatibility.
-
----
-
-# 14. ORB-SLAM3 Output
+# 16. ORB-SLAM3 Output
 
 After successful initialization:
 
@@ -390,6 +444,7 @@ After successful initialization:
 * live localization
 * keyframe generation
 * loop closure support
+* metric scale from the IMU
 
 The viewer displays:
 
@@ -397,76 +452,45 @@ The viewer displays:
 * keyframes
 * camera pose
 * sparse 3D map
+* inertial graph
 
 ---
 
-# 15. Live XYZ Pose Output
-
-Changes were additionally made inside the ORB-SLAM3 ROS2 wrapper files to obtain live XYZ pose output from the SLAM system.
-
-The modifications were implemented using guidance and debugging through GPT-assisted development sessions.
-
-The changes involved:
-
-* accessing ORB-SLAM3 pose matrices
-* extracting translation vectors
-* converting pose into live XYZ coordinates
-* exposing pose information from the SLAM pipeline
-
-These modifications were applied inside the ORB-SLAM3 ROS2 integration source files.
-
----
-
-# 16. Current Working Pipeline
+# 17. Current Working Pipeline
 
 Final working pipeline:
 
 ```plaintext
-Crazyflie AI Deck
+Crazyflie AI Deck (160x160, grayscale)
         ↓
-UDP packets over WiFi
+Wi-Fi (NanoCockpit streamer)
         ↓
-udp_camera_node.py
+nanocockpit_camera_node
         ↓
-ROS2 topic (/camera/image_raw)
-        ↓
-ORB-SLAM3 monocular SLAM
-        ↓
-Real-time tracking + sparse map generation
+ROS2 topic (/camera/image_raw)  ~60 Hz ─────┐
+                                            ├──► ORB-SLAM3 Mono-Inertial
+Crazyflie IMU                               │          ↓
+        ↓                                   │   Real-time tracking +
+Crazyradio (-18 dBm)                        │   sparse map generation +
+        ↓                                   │   live [POSE] output
+cf_imu_node                                 │
+        ↓                                   │
+ROS2 topic (/cf_imu)  ~100 Hz ──────────────┘
 ```
 
 ---
 
-# 17. Future Improvements
+# 18. Future Improvements
 
 Possible extensions:
 
-* Mono-Inertial ORB-SLAM3
-* IMU synchronization
+* Fuse the Loco Positioning (LPS) deck with the AI Deck and use the UWB anchors as ground truth to measure the accuracy of the SLAM trajectory
 * Navigation stack integration
-* Autonomous waypoint navigation
 
 ---
 
-# 17. Notes
-
-This setup uses monocular SLAM.
-
-Current limitations:
-
-* sparse map only
-* scale ambiguity
-* low camera FPS (~7 Hz)
-
-Mono-inertial integration is the next planned step.
-
----
-
-# 18. Credits
+# 19. Credits
 
 * https://github.com/zang09/ORB_SLAM3_ROS2
 * Bitcraze Crazyflie 2.1+ (https://www.bitcraze.io/products/crazyflie-2-1-plus/)
 * AI Deck (https://www.bitcraze.io/documentation/tutorials/getting-started-with-aideck/#preparing-the-ai-deck-and-crazyflie-firmware)
-
-
-
